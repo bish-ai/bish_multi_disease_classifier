@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BISH — Disease Classifier</title>
+<link href="https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@0,100;0,300;0,400;0,700;0,900;1,300&family=Share+Tech+Mono&family=Bebas+Neue&display=swap" rel="stylesheet">
+<style>
+:root {
+  --void: #020208;
+  --deep: #04040f;
+  --panel: rgba(4,8,24,0.85);
+  --glass: rgba(0,255,234,0.04);
+  --cyan: #00ffea;
+  --cyan-dim: rgba(0,255,234,0.4);
+  --blue: #0048ff;
+  --green: #39ff14;
+  --magenta: #ff006e;
+  --amber: #ffb700;
+  --red: #ff2244;
+  --white: #e8f4f8;
+  --muted: rgba(232,244,248,0.35);
+  --border: rgba(0,255,234,0.12);
+  --border-bright: rgba(0,255,234,0.5);
+  --glow-sm: 0 0 12px rgba(0,255,234,0.4);
+  --glow-md: 0 0 30px rgba(0,255,234,0.3), 0 0 60px rgba(0,255,234,0.1);
+  --glow-lg: 0 0 50px rgba(0,255,234,0.5), 0 0 120px rgba(0,72,255,0.2);
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+::selection{background:rgba(0,255,234,0.2);color:var(--cyan);}
+body {
+  background: var(--void);
+  color: var(--white);
+  font-family: 'Exo 2', sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+  cursor: none;
+}
+#cursor {
+  position: fixed; top:0; left:0; z-index:9999;
+  pointer-events: none; mix-blend-mode: screen;
+}
+#cursor-dot {
+  position: absolute; width:8px; height:8px;
+  background: var(--cyan); border-radius:50%;
+  transform: translate(-50%,-50%);
+  box-shadow: 0 0 12px var(--cyan), 0 0 24px var(--cyan);
+  transition: transform 0.1s;
+}
+#cursor-ring {
+  position: absolute; width:36px; height:36px;
+  border: 1.5px solid var(--cyan);
+  border-radius:50%;
+  transform: translate(-50%,-50%);
+  opacity:0.6;
+  transition: transform 0.18s ease, width 0.2s, height 0.2s, opacity 0.2s;
+}
+#cursor-cross-h, #cursor-cross-v {
+  position: absolute; background: var(--cyan); opacity:0.4;
+  transform: translate(-50%,-50%);
+}
+#cursor-cross-h { width:20px; height:1px; }
+#cursor-cross-v { width:1px; height:20px; }
+body.clicking #cursor-ring {
+  transform: translate(-50%,-50%) scale(0.7);
+  opacity:1;
+}
+#three-canvas {
+  position:fixed; top:0; left:0; width:100%; height:100%; z-index:0;
+  pointer-events:none;
+}
+#scanlines {
+  position:fixed; inset:0; z-index:1; pointer-events:none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,255,234,0.015) 2px,
+    rgba(0,255,234,0.015) 4px
+  );
+  animation: scanlines-shift 8s linear infinite;
+}
+@keyframes scanlines-shift {
+  0%{background-position:0 0}
+  100%{background-position:0 100px}
+}
+#vignette {
+  position:fixed; inset:0; z-index:1; pointer-events:none;
+  background: radial-gradient(ellipse 80% 80% at 50% 50%, transparent 40%, rgba(2,2,8,0.8) 100%);
+}
+#noise {
+  position:fixed; inset:0; z-index:1; pointer-events:none; opacity:0.025;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size:256px 256px;
+  animation: noise-anim 0.3s steps(1) infinite;
+}
+@keyframes noise-anim {
+  0%{transform:translate(0,0)}10%{transform:translate(-2%,-3%)}20%{transform:translate(3%,2%)}
+  30%{transform:translate(-1%,4%)}40%{transform:translate(2%,-1%)}50%{transform:translate(-3%,1%)}
+  60%{transform:translate(1%,-2%)}70%{transform:translate(-2%,3%)}80%{transform:translate(3%,-4%)}
+  90%{transform:translate(-1%,2%)}100%{transform:translate(2%,-3%)}
+}
+.app {
+  position:relative; z-index:2;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 24px 40px;
+}
+.header {
+  padding: 28px 0 18px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  animation: slideDown 0.8s cubic-bezier(0.16,1,0.3,1) both;
+}
+@keyframes slideDown {
+  from { opacity:0; transform:translateY(-30px); }
+  to { opacity:1; transform:translateY(0); }
+}
+.header-left {display:flex; align-items:center; gap:20px;}
+.hex-logo {width:52px; height:60px; position:relative; flex-shrink:0;}
+.hex-logo svg { filter: drop-shadow(0 0 12px var(--cyan)); }
+.title-main {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: clamp(1.8rem,3.5vw,3rem);
+  letter-spacing:0.12em; line-height:1; position:relative;
+  color: var(--white); text-shadow: 0 0 30px rgba(0,255,234,0.5);
+}
+.title-main .chroma-r {
+  position:absolute; top:0; left:0; width:100%;
+  color:var(--magenta); opacity:0.4; transform:translate(2px,0); mix-blend-mode:screen;
+}
+.title-main .chroma-b {
+  position:absolute; top:0; left:0; width:100%;
+  color:var(--blue); opacity:0.4; transform:translate(-2px,0); mix-blend-mode:screen;
+}
+.title-sub {
+  font-family: 'Share Tech Mono', monospace;
+  font-size:0.65rem; letter-spacing:0.3em; color:var(--cyan-dim); margin-top:4px; text-transform:uppercase;
+}
+.header-right {display:flex; flex-direction:column; align-items:flex-end; gap:6px;}
+.live-badge {display:flex; align-items:center; gap:8px; font-family:'Share Tech Mono',monospace; font-size:0.68rem; letter-spacing:0.15em; color:var(--green);}
+.live-dot {width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 10px var(--green);animation:live-pulse 1.2s ease-in-out infinite;}
+@keyframes live-pulse {0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.4);opacity:0.6}}
+#hdr-clock {font-family:'Share Tech Mono',monospace;font-size:1.1rem;letter-spacing:0.08em;color:var(--white);opacity:0.7;}
+.acc-badge {font-family:'Share Tech Mono',monospace;font-size:0.65rem;letter-spacing:0.12em;color:var(--amber);opacity:0.8;}
+.ecg-bar {height:50px;overflow:hidden;position:relative;margin:0 0 20px;border-bottom:1px solid var(--border);animation:fadeIn 1.2s ease both 0.3s;}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+#ecg-canvas {width:100%;height:100%;}
+.ecg-label {position:absolute;right:0;top:50%;transform:translateY(-50%);font-family:'Share Tech Mono',monospace;font-size:0.6rem;letter-spacing:0.2em;color:var(--cyan-dim);background:var(--void);padding-left:8px;}
+.content-grid {display:grid;grid-template-columns:1fr 420px;gap:20px;align-items:start;}
+@media(max-width:1024px){.content-grid{grid-template-columns:1fr;}}
+.gpanel {
+  background: var(--panel); border:1px solid var(--border); border-radius:16px;
+  backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px);
+  position:relative; overflow:hidden;
+  transition:box-shadow 0.4s,border-color 0.4s,transform 0.3s;
+}
+.gpanel:hover {border-color:rgba(0,255,234,0.25);box-shadow:var(--glow-md);}
+.gpanel::before {
+  content:''; position:absolute; top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent 0%,var(--cyan) 30%,rgba(0,72,255,0.8) 70%,transparent 100%);
+  opacity:0.6;
+}
+.gpanel::after {
+  content:''; position:absolute; bottom:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(0,255,234,0.2),transparent);
+}
+.gpanel-pad {padding:20px;}
+.gpanel .corner {position:absolute;width:16px;height:16px;border-color:var(--cyan);border-style:solid;opacity:0.5;}
+.gpanel .corner.tl {top:8px;left:8px;border-width:2px 0 0 2px;border-radius:4px 0 0 0;}
+.gpanel .corner.tr {top:8px;right:8px;border-width:2px 2px 0 0;border-radius:0 4px 0 0;}
+.gpanel .corner.bl {bottom:8px;left:8px;border-width:0 0 2px 2px;border-radius:0 0 0 4px;}
+.gpanel .corner.br {bottom:8px;right:8px;border-width:0 2px 2px 0;border-radius:0 0 4px 0;}
+.sec-label {
+  font-family:'Share Tech Mono',monospace; font-size:0.6rem; letter-spacing:0.3em;
+  color:var(--cyan); text-transform:uppercase; margin-bottom:16px;
+  display:flex; align-items:center; gap:10px; opacity:0.8;
+}
+.sec-label .line {flex:1;height:1px;background:linear-gradient(90deg,rgba(0,255,234,0.3),transparent);}
+.radar-wrap {display:flex;justify-content:center;margin-bottom:16px;}
+#radar-canvas {filter:drop-shadow(0 0 10px rgba(0,255,234,0.3));}
+.groups-grid {display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+@media(max-width:700px){.groups-grid{grid-template-columns:1fr;}}
+.gblock {background:rgba(0,0,0,0.3);border:1px solid rgba(0,255,234,0.07);border-radius:10px;padding:14px;transition:border-color 0.3s,background 0.3s;}
+.gblock:hover {border-color:rgba(0,255,234,0.15);background:rgba(0,255,234,0.03);}
+.gblock-title {font-family:'Share Tech Mono',monospace;font-size:0.58rem;letter-spacing:0.2em;color:rgba(0,255,234,0.5);margin-bottom:12px;text-transform:uppercase;}
+.srow {margin-bottom:9px;}
+.srow-head {display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;}
+.srow-name {font-size:0.76rem;font-weight:600;letter-spacing:0.04em;color:rgba(232,244,248,0.8);}
+.sval {font-family:'Share Tech Mono',monospace;font-size:0.7rem;min-width:42px;text-align:right;padding:1px 5px;border-radius:3px;background:rgba(0,255,234,0.07);color:var(--cyan);transition:color 0.3s,background 0.3s;}
+.sval.w{color:var(--amber);background:rgba(255,183,0,0.1);}
+.sval.d{color:var(--red);background:rgba(255,34,68,0.12);}
+.sval.h{color:var(--green);background:rgba(57,255,20,0.08);}
+input[type=range]{-webkit-appearance:none;width:100%;height:3px;border-radius:3px;background:rgba(0,255,234,0.1);outline:none;cursor:pointer;}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;background:var(--void);border:2px solid var(--cyan);box-shadow:0 0 8px var(--cyan);cursor:pointer;transition:transform 0.15s,box-shadow 0.15s;}
+input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.5);box-shadow:0 0 18px var(--cyan),0 0 30px var(--cyan);}
+input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;background:var(--void);border:2px solid var(--cyan);box-shadow:0 0 8px var(--cyan);cursor:pointer;border:none;}
+.action-row {display:flex;gap:12px;margin-top:18px;}
+.btn-scan {
+  flex:1;padding:14px;background:transparent;border:1.5px solid var(--cyan);border-radius:10px;
+  font-family:'Bebas Neue',sans-serif;font-size:1.1rem;letter-spacing:0.2em;color:var(--cyan);cursor:none;
+  position:relative;overflow:hidden;transition:all 0.3s;
+}
+.btn-scan::before {content:'';position:absolute;top:0;left:-100%;width:100%;height:100%;background:linear-gradient(90deg,transparent,rgba(0,255,234,0.12),transparent);transition:left 0.6s;}
+.btn-scan:hover::before{left:100%;}
+.btn-scan:hover {background:rgba(0,255,234,0.06);box-shadow:0 0 30px rgba(0,255,234,0.4),0 0 60px rgba(0,255,234,0.15);transform:translateY(-2px);}
+.btn-scan.scanning {animation:btn-pulse 0.8s ease-in-out infinite alternate;pointer-events:none;}
+@keyframes btn-pulse {
+  from{box-shadow:0 0 20px rgba(0,255,234,0.3);border-color:var(--cyan);}
+  to{box-shadow:0 0 50px rgba(0,255,234,0.7),0 0 100px rgba(0,72,255,0.3);border-color:white;}
+}
+.btn-rst {padding:14px 16px;background:transparent;border:1px solid rgba(232,244,248,0.15);border-radius:10px;font-family:'Share Tech Mono',monospace;font-size:0.7rem;letter-spacing:0.15em;color:var(--muted);cursor:none;transition:all 0.3s;}
+.btn-rst:hover{border-color:rgba(232,244,248,0.4);color:var(--white);}
+.right-col{display:flex;flex-direction:column;gap:16px;}
+.p-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.pfield label{display:block;font-family:'Share Tech Mono',monospace;font-size:0.58rem;letter-spacing:0.2em;color:rgba(0,255,234,0.4);text-transform:uppercase;margin-bottom:4px;}
+.pfield input,.pfield select{width:100%;background:rgba(0,0,0,0.4);border:1px solid rgba(0,255,234,0.12);border-radius:6px;color:var(--white);font-family:'Exo 2',sans-serif;font-size:0.88rem;padding:8px 10px;outline:none;transition:border-color 0.2s,box-shadow 0.2s;}
+.pfield input:focus,.pfield select:focus{border-color:var(--cyan);box-shadow:0 0 0 2px rgba(0,255,234,0.08);}
+.pfield select option{background:var(--deep);}
+.result-wrap {perspective:1000px;}
+.result-card {position:relative;transform-style:preserve-3d;transition:transform 0.9s cubic-bezier(0.16,1,0.3,1);min-height:240px;}
+.result-card.flipped{transform:rotateY(180deg);}
+.r-face {backface-visibility:hidden;-webkit-backface-visibility:hidden;position:absolute;inset:0;border-radius:16px;border:1px solid var(--border);background:var(--panel);backdrop-filter:blur(20px);display:flex;align-items:center;justify-content:center;flex-direction:column;padding:24px;overflow:hidden;}
+.r-face::before {content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--cyan),transparent);opacity:0.6;}
+.r-back{transform:rotateY(180deg);}
+.r-front-content{text-align:center;}
+.wait-ring {width:80px;height:80px;border-radius:50%;border:1.5px solid rgba(0,255,234,0.12);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;position:relative;animation:ring-spin 6s linear infinite;}
+@keyframes ring-spin{to{transform:rotate(360deg);}}
+.wait-ring::before{content:'';position:absolute;inset:-6px;border-radius:50%;border:1px dashed rgba(0,255,234,0.15);animation:ring-spin 12s linear infinite reverse;}
+.wait-ring svg{animation:ring-spin 6s linear infinite reverse;}
+.wait-txt {font-family:'Share Tech Mono',monospace;font-size:0.72rem;letter-spacing:0.15em;color:var(--muted);line-height:1.8;}
+.r-back-inner{width:100%;}
+.r-ts {font-family:'Share Tech Mono',monospace;font-size:0.55rem;letter-spacing:0.2em;color:rgba(0,255,234,0.4);margin-bottom:12px;}
+.disease-name {font-family:'Bebas Neue',sans-serif;font-size:2.2rem;letter-spacing:0.12em;line-height:1;margin-bottom:2px;position:relative;}
+.conf-num {font-family:'Share Tech Mono',monospace;font-size:2.8rem;font-weight:900;line-height:1;margin-bottom:14px;text-shadow:var(--glow-lg);filter:drop-shadow(0 0 20px currentColor);}
+.conf-unit{font-size:1.2rem;opacity:0.6;}
+.r-flags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;}
+.r-flag{font-family:'Share Tech Mono',monospace;font-size:0.62rem;letter-spacing:0.08em;padding:3px 8px;border-radius:20px;border:1px solid currentColor;}
+.r-desc{font-size:0.78rem;line-height:1.65;color:rgba(232,244,248,0.7);background:rgba(0,0,0,0.2);border-left:2.5px solid var(--cyan);padding:10px 12px;border-radius:0 6px 6px 0;}
+.r-patient{font-size:0.7rem;color:var(--muted);font-family:'Share Tech Mono',monospace;letter-spacing:0.1em;margin-bottom:8px;}
+.prob-panel{display:none;}
+.prob-row{margin-bottom:8px;}
+.prob-head{display:flex;justify-content:space-between;margin-bottom:3px;font-size:0.74rem;font-weight:600;}
+.prob-name{color:var(--white);}
+.prob-pct{font-family:'Share Tech Mono',monospace;font-size:0.68rem;color:var(--muted);}
+.prob-track{width:100%;height:5px;background:rgba(255,255,255,0.04);border-radius:5px;overflow:hidden;}
+.prob-fill{height:100%;border-radius:5px;width:0;transition:width 1.2s cubic-bezier(0.23,1,0.32,1);}
+#scan-modal {position:fixed;inset:0;z-index:999;display:none;align-items:center;justify-content:center;background:rgba(2,2,8,0.92);backdrop-filter:blur(8px);}
+#scan-modal.on{display:flex;}
+.scan-box{position:relative;width:320px;display:flex;flex-direction:column;align-items:center;gap:20px;}
+.scan-hex {width:120px;height:120px;position:relative;display:flex;align-items:center;justify-content:center;}
+.scan-hex svg {animation:hex-rotate 3s linear infinite;}
+@keyframes hex-rotate{to{transform:rotate(360deg);}}
+.scan-hex-inner{position:absolute;width:70px;height:70px;display:flex;align-items:center;justify-content:center;}
+.scan-progress-wrap{width:100%;}
+.scan-progress-bar {width:100%;height:2px;background:rgba(0,255,234,0.1);border-radius:2px;overflow:hidden;margin-bottom:8px;}
+.scan-progress-fill {height:100%;width:0;background:linear-gradient(90deg,var(--blue),var(--cyan),var(--green));border-radius:2px;transition:width 0.35s ease;box-shadow:0 0 12px var(--cyan);}
+.scan-step-text {font-family:'Share Tech Mono',monospace;font-size:0.72rem;letter-spacing:0.15em;color:var(--cyan);text-align:center;animation:flick 0.4s ease-in-out infinite alternate;}
+@keyframes flick{from{opacity:0.7}to{opacity:1;filter:drop-shadow(0 0 6px var(--cyan));}}
+.scan-sub-text {font-family:'Share Tech Mono',monospace;font-size:0.6rem;letter-spacing:0.1em;color:rgba(0,255,234,0.4);text-align:center;margin-top:4px;}
+.scan-data-stream {font-family:'Share Tech Mono',monospace;font-size:0.6rem;letter-spacing:0.08em;color:rgba(0,255,234,0.3);width:100%;height:80px;overflow:hidden;line-height:1.8;}
+.data-line{animation:data-in 0.2s ease both;}
+@keyframes data-in{from{opacity:0;transform:translateX(10px)}to{opacity:1;transform:translateX(0)}}
+.stats-row {display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px;animation:fadeIn 0.8s ease both 0.5s;}
+@media(max-width:700px){.stats-row{grid-template-columns:repeat(2,1fr);}}
+.stat-chip {background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:8px;padding:10px 12px;position:relative;overflow:hidden;transition:border-color 0.3s,box-shadow 0.3s;}
+.stat-chip:hover{border-color:rgba(0,255,234,0.3);box-shadow:var(--glow-sm);}
+.stat-chip::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--cyan),transparent);opacity:0.3;}
+.stat-val {font-family:'Bebas Neue',sans-serif;font-size:1.5rem;letter-spacing:0.1em;color:var(--cyan);line-height:1;text-shadow:var(--glow-sm);}
+.stat-lbl {font-family:'Share Tech Mono',monospace;font-size:0.55rem;letter-spacing:0.2em;color:var(--muted);text-transform:uppercase;margin-top:2px;}
+.disc {text-align:center;padding:16px;font-family:'Share Tech Mono',monospace;font-size:0.58rem;letter-spacing:0.1em;color:rgba(232,244,248,0.2);border-top:1px solid var(--border);margin-top:20px;}
+.gpanel {animation:panelIn 0.7s cubic-bezier(0.16,1,0.3,1) both;}
+.gpanel:nth-child(1){animation-delay:0.2s;}
+.gpanel:nth-child(2){animation-delay:0.35s;}
+.right-col .gpanel:nth-child(1){animation-delay:0.25s;}
+.right-col .gpanel:nth-child(2){animation-delay:0.4s;}
+@keyframes panelIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+.gpanel.tiltable {transform-style:preserve-3d;}
+</style>
+</head>
+<body>
+
+<div id="cursor">
+  <div id="cursor-ring"></div>
+  <div id="cursor-dot"></div>
+  <div id="cursor-cross-h"></div>
+  <div id="cursor-cross-v"></div>
+</div>
+
+<canvas id="three-canvas"></canvas>
+<div id="scanlines"></div>
+<div id="vignette"></div>
+<div id="noise"></div>
+
+<div id="scan-modal">
+  <div class="scan-box">
+    <div class="scan-hex">
+      <svg width="120" height="120" viewBox="0 0 120 120">
+        <polygon points="60,6 111,33 111,87 60,114 9,87 9,33" fill="none" stroke="rgba(0,255,234,0.25)" stroke-width="1" stroke-dasharray="6 4"/>
+        <polygon points="60,18 99,40.5 99,79.5 60,102 21,79.5 21,40.5" fill="none" stroke="rgba(0,255,234,0.5)" stroke-width="1.5" stroke-dasharray="3 3"/>
+        <circle cx="60" cy="60" r="30" fill="none" stroke="rgba(0,72,255,0.4)" stroke-width="1" stroke-dasharray="4 2"/>
+      </svg>
+      <div class="scan-hex-inner">
+        <svg width="44" height="44" viewBox="0 0 24 24" fill="none">
+          <path d="M3 12h2l2-7 3 14 3-9 2 2h4" stroke="#00ffea" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+    </div>
+    <div class="scan-progress-wrap">
+      <div class="scan-progress-bar"><div class="scan-progress-fill" id="scan-prog"></div></div>
+      <div class="scan-step-text" id="scan-step">INITIALIZING ANALYSIS</div>
+      <div class="scan-sub-text" id="scan-sub">Loading biomarker matrix...</div>
+    </div>
+    <div class="scan-data-stream" id="data-stream"></div>
+  </div>
+</div>
+
+<div class="app">
+  <header class="header">
+    <div class="header-left">
+      <div class="hex-logo">
+        <svg width="52" height="60" viewBox="0 0 52 60">
+          <polygon points="26,3 50,16 50,44 26,57 2,44 2,16" fill="none" stroke="#00ffea" stroke-width="1.5" opacity="0.6"/>
+          <polygon points="26,10 44,21 44,39 26,50 8,39 8,21" fill="rgba(0,255,234,0.05)" stroke="#00ffea" stroke-width="1"/>
+          <line x1="16" y1="30" x2="20" y2="30" stroke="#00ffea" stroke-width="1.5"/>
+          <line x1="20" y1="30" x2="22" y2="23" stroke="#00ffea" stroke-width="1.5"/>
+          <line x1="22" y1="23" x2="26" y2="37" stroke="#00ffea" stroke-width="1.5"/>
+          <line x1="26" y1="37" x2="28" y2="30" stroke="#00ffea" stroke-width="1.5"/>
+          <line x1="28" y1="30" x2="36" y2="30" stroke="#00ffea" stroke-width="1.5"/>
+        </svg>
+      </div>
+      <div class="title-block">
+        <div class="title-main">
+          <span class="chroma-r" aria-hidden="true">BISH DISEASE CLASSIFIER</span>
+          <span class="chroma-b" aria-hidden="true">BISH DISEASE CLASSIFIER</span>
+          BISH DISEASE CLASSIFIER
+        </div>
+        <div class="title-sub">Blood Biomarker Intelligence System · v2.4 · SGD Neural Classification</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="live-badge"><div class="live-dot"></div>SYSTEM ONLINE</div>
+      <div id="hdr-clock">--:--:--</div>
+      <div class="acc-badge">MODEL ACC: 99.91% ·· ROC-AUC: 0.999</div>
+    </div>
+  </header>
+
+  <div class="ecg-bar">
+    <canvas id="ecg-canvas"></canvas>
+    <span class="ecg-label">CARDIAC MONITOR — SINUS RHYTHM</span>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-chip"><div class="stat-val">24</div><div class="stat-lbl">Biomarkers</div></div>
+    <div class="stat-chip"><div class="stat-val">6</div><div class="stat-lbl">Disease Classes</div></div>
+    <div class="stat-chip"><div class="stat-val" id="stat-scans">0</div><div class="stat-lbl">Scans Run</div></div>
+    <div class="stat-chip"><div class="stat-val" id="stat-last">—</div><div class="stat-lbl">Last Result</div></div>
+  </div>
+
+  <div class="content-grid">
+    <div>
+      <div class="gpanel tiltable" id="input-panel">
+        <div class="corner tl"></div><div class="corner tr"></div>
+        <div class="corner bl"></div><div class="corner br"></div>
+        <div class="gpanel-pad">
+          <div class="sec-label">⬡ Biomarker Input Array <div class="line"></div></div>
+          <div class="radar-wrap">
+            <canvas id="radar-canvas" width="260" height="240"></canvas>
+          </div>
+          <div class="groups-grid" id="sliders-mount"></div>
+          <div class="action-row">
+            <button class="btn-scan" id="scan-btn" onclick="runScan()">⬡ INITIATE SCAN SEQUENCE</button>
+            <button class="btn-rst" onclick="resetAll()">RESET</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="right-col">
+      <div class="gpanel">
+        <div class="corner tl"></div><div class="corner tr"></div>
+        <div class="corner bl"></div><div class="corner br"></div>
+        <div class="gpanel-pad">
+          <div class="sec-label">⬡ Patient Profile <div class="line"></div></div>
+          <div class="p-grid">
+            <div class="pfield"><label>Full Name</label><input id="pname" type="text" placeholder="Patient name"/></div>
+            <div class="pfield"><label>Patient ID</label><input id="pid" type="text" placeholder="BSH-XXXX"/></div>
+            <div class="pfield"><label>Age (yrs)</label><input id="page" type="number" min="1" max="120" placeholder="—"/></div>
+            <div class="pfield"><label>Sex</label><select id="psex"><option value="">Select</option><option>Male</option><option>Female</option><option>Other</option></select></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="result-wrap" style="min-height:240px;">
+        <div class="result-card" id="result-card">
+          <div class="r-face r-front">
+            <div class="corner tl"></div><div class="corner tr"></div>
+            <div class="corner bl"></div><div class="corner br"></div>
+            <div class="r-front-content">
+              <div class="wait-ring">
+                <svg width="80" height="80" viewBox="0 0 80 80">
+                  <circle cx="40" cy="40" r="35" fill="none" stroke="rgba(0,255,234,0.1)" stroke-width="1" stroke-dasharray="8 4"/>
+                </svg>
+                <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+                    <path d="M3 12h2l2-7 3 14 3-9 2 2h4" stroke="rgba(0,255,234,0.3)" stroke-width="1.8" stroke-linecap="round"/>
+                  </svg>
+                </div>
+              </div>
+              <p class="wait-txt">Configure biomarkers<br>above and initiate<br>scan sequence</p>
+            </div>
+          </div>
+          <div class="r-face r-back" id="result-back">
+            <div class="corner tl"></div><div class="corner tr"></div>
+            <div class="corner bl"></div><div class="corner br"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="gpanel prob-panel" id="prob-panel">
+        <div class="corner tl"></div><div class="corner tr"></div>
+        <div class="corner bl"></div><div class="corner br"></div>
+        <div class="gpanel-pad">
+          <div class="sec-label">⬡ Disease Probability Matrix <div class="line"></div></div>
+          <div id="prob-bars"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="disc">⚕ BISH DISEASE CLASSIFIER v2.4 · FOR RESEARCH & EDUCATIONAL PURPOSES ONLY · NOT A SUBSTITUTE FOR PROFESSIONAL MEDICAL DIAGNOSIS · ALWAYS CONSULT A QUALIFIED PHYSICIAN</p>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// CURSOR
+const dot=document.getElementById('cursor-dot');
+const ring=document.getElementById('cursor-ring');
+const crossH=document.getElementById('cursor-cross-h');
+const crossV=document.getElementById('cursor-cross-v');
+let mx=0,my=0,rx=0,ry=0;
+document.addEventListener('mousemove',e=>{
+  mx=e.clientX;my=e.clientY;
+  dot.style.left=mx+'px';dot.style.top=my+'px';
+  crossH.style.left=mx+'px';crossH.style.top=my+'px';
+  crossV.style.left=mx+'px';crossV.style.top=my+'px';
+});
+document.addEventListener('mousedown',()=>document.body.classList.add('clicking'));
+document.addEventListener('mouseup',()=>document.body.classList.remove('clicking'));
+(function animCursor(){
+  rx+=(mx-rx)*0.12;ry+=(my-ry)*0.12;
+  ring.style.left=rx+'px';ring.style.top=ry+'px';
+  requestAnimationFrame(animCursor);
+})();
+
+// THREE.JS DNA HELIX
+(function initDNA(){
+  const renderer=new THREE.WebGLRenderer({canvas:document.getElementById('three-canvas'),alpha:true,antialias:true});
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+  renderer.setSize(window.innerWidth,window.innerHeight);
+  renderer.setClearColor(0x000000,0);
+  const scene=new THREE.Scene();
+  const camera=new THREE.PerspectiveCamera(60,window.innerWidth/window.innerHeight,0.1,1000);
+  camera.position.set(0,0,28);
+  const matA=new THREE.MeshBasicMaterial({color:0x00ffea,transparent:true,opacity:0.7});
+  const matB=new THREE.MeshBasicMaterial({color:0x0048ff,transparent:true,opacity:0.7});
+  const matRung=new THREE.MeshBasicMaterial({color:0x00ffea,transparent:true,opacity:0.25});
+  const lineMat=new THREE.LineBasicMaterial({color:0x00ffea,transparent:true,opacity:0.15});
+  const lineMat2=new THREE.LineBasicMaterial({color:0x0048ff,transparent:true,opacity:0.15});
+  const helixGroup=new THREE.Group();
+  scene.add(helixGroup);
+  helixGroup.position.x=12;
+  const N=80,radius=3,height=40;
+  const sphereGeo=new THREE.SphereGeometry(0.12,8,8);
+  const rungGeo=new THREE.SphereGeometry(0.07,6,6);
+  const pts1=[],pts2=[];
+  for(let i=0;i<N;i++){
+    const t=i/(N-1);
+    const angle=t*Math.PI*8;
+    const y=(t-0.5)*height;
+    const x1=Math.cos(angle)*radius,z1=Math.sin(angle)*radius;
+    const x2=Math.cos(angle+Math.PI)*radius,z2=Math.sin(angle+Math.PI)*radius;
+    pts1.push(new THREE.Vector3(x1,y,z1));
+    pts2.push(new THREE.Vector3(x2,y,z2));
+    const s1=new THREE.Mesh(sphereGeo,matA.clone());
+    s1.position.set(x1,y,z1);
+    const s2=new THREE.Mesh(sphereGeo,matB.clone());
+    s2.position.set(x2,y,z2);
+    helixGroup.add(s1,s2);
+    if(i%4===0){
+      for(let r=0;r<=6;r++){
+        const f=r/6;
+        const rm=new THREE.Mesh(rungGeo,matRung);
+        rm.position.set(x1+(x2-x1)*f,y,z1+(z2-z1)*f);
+        helixGroup.add(rm);
+      }
+    }
+  }
+  const geo1=new THREE.BufferGeometry().setFromPoints(pts1);
+  const geo2=new THREE.BufferGeometry().setFromPoints(pts2);
+  helixGroup.add(new THREE.Line(geo1,lineMat));
+  helixGroup.add(new THREE.Line(geo2,lineMat2));
+  const partGeo=new THREE.BufferGeometry();
+  const partCount=120;
+  const pPos=new Float32Array(partCount*3);
+  for(let i=0;i<partCount;i++){pPos[i*3]=(Math.random()-0.5)*60;pPos[i*3+1]=(Math.random()-0.5)*60;pPos[i*3+2]=(Math.random()-0.5)*30;}
+  partGeo.setAttribute('position',new THREE.BufferAttribute(pPos,3));
+  const partMat=new THREE.PointsMaterial({color:0x00ffea,size:0.08,transparent:true,opacity:0.4});
+  scene.add(new THREE.Points(partGeo,partMat));
+  window.addEventListener('resize',()=>{camera.aspect=window.innerWidth/window.innerHeight;camera.updateProjectionMatrix();renderer.setSize(window.innerWidth,window.innerHeight);});
+  let t=0;
+  (function animDNA(){
+    requestAnimationFrame(animDNA);
+    t+=0.005;
+    helixGroup.rotation.y=t*0.4;
+    helixGroup.position.y=Math.sin(t*0.5)*0.8;
+    renderer.render(scene,camera);
+  })();
+})();
+
+// ECG
+(function initECG(){
+  const canvas=document.getElementById('ecg-canvas');
+  const ctx=canvas.getContext('2d');
+  let offset=0;
+  function resize(){canvas.width=canvas.offsetWidth;canvas.height=canvas.offsetHeight;}
+  resize();
+  window.addEventListener('resize',resize);
+  function ecgY(x){
+    const cycle=120;
+    const pos=((x%cycle)+cycle)%cycle;
+    if(pos<30)return 0;if(pos<35)return -2;if(pos<40)return -20;
+    if(pos<45)return 18;if(pos<48)return -6;if(pos<52)return 0;
+    return 0;
+  }
+  (function draw(){
+    requestAnimationFrame(draw);
+    const W=canvas.width,H=canvas.height;
+    ctx.clearRect(0,0,W,H);
+    ctx.shadowColor='#00ffea';ctx.shadowBlur=6;
+    ctx.strokeStyle='rgba(0,255,234,0.9)';ctx.lineWidth=1.5;ctx.beginPath();
+    const mid=H/2;
+    for(let x=0;x<W;x++){const y=mid+ecgY(x+offset)*(H/52);x===0?ctx.moveTo(x,y):ctx.lineTo(x,y);}
+    ctx.stroke();ctx.shadowBlur=0;
+    ctx.strokeStyle='rgba(0,255,234,0.15)';ctx.lineWidth=1;ctx.beginPath();
+    for(let x=0;x<W;x++){const y=mid+ecgY(x+offset-8)*(H/52);x===0?ctx.moveTo(x,y):ctx.lineTo(x,y);}
+    ctx.stroke();
+    offset+=2;
+  })();
+})();
+
+// CLOCK
+setInterval(()=>{document.getElementById('hdr-clock').textContent=new Date().toLocaleTimeString('en-GB',{hour12:false});},1000);
+
+// BIOMARKERS
+const MARKERS=[
+  {group:'Complete Blood Count',icon:'🩸',items:[
+    {id:'hemoglobin',n:'Hemoglobin',def:0.50,wl:0.35,wh:0.85},
+    {id:'rbc',n:'Red Blood Cells',def:0.50,wl:0.35,wh:0.85},
+    {id:'wbc',n:'White Blood Cells',def:0.40,wl:0.20,wh:0.70},
+    {id:'platelets',n:'Platelets',def:0.50,wl:0.25,wh:0.85},
+    {id:'hematocrit',n:'Hematocrit',def:0.50,wl:0.35,wh:0.85},
+  ]},
+  {group:'Cell Morphology',icon:'🔬',items:[
+    {id:'mcv',n:'Mean Corp. Volume',def:0.50,wl:0.30,wh:0.75},
+    {id:'mch',n:'Mean Corp. Hemoglobin',def:0.50,wl:0.30,wh:0.75},
+    {id:'mchc',n:'MCHC',def:0.50,wl:0.30,wh:0.75},
+  ]},
+  {group:'Glucose & Lipids',icon:'🧪',items:[
+    {id:'glucose',n:'Glucose',def:0.45,wl:0.20,wh:0.65},
+    {id:'hba1c',n:'HbA1c',def:0.40,wl:0.10,wh:0.65},
+    {id:'cholesterol',n:'Total Cholesterol',def:0.45,wl:0.20,wh:0.70},
+    {id:'ldl',n:'LDL Cholesterol',def:0.40,wl:0.10,wh:0.65},
+    {id:'hdl',n:'HDL Cholesterol',def:0.50,wl:0.30,wh:0.90},
+  ]},
+  {group:'Liver & Kidney',icon:'⚗️',items:[
+    {id:'alt',n:'ALT',def:0.30,wl:0.05,wh:0.65},
+    {id:'ast',n:'AST',def:0.35,wl:0.05,wh:0.65},
+    {id:'creatinine',n:'Creatinine',def:0.35,wl:0.10,wh:0.65},
+  ]},
+  {group:'Cardiac & Inflammation',icon:'❤️',items:[
+    {id:'troponin',n:'Troponin',def:0.30,wl:0.05,wh:0.60},
+    {id:'crp',n:'C-Reactive Protein',def:0.35,wl:0.05,wh:0.65},
+    {id:'heartRate',n:'Heart Rate',def:0.45,wl:0.20,wh:0.75},
+  ]},
+];
+
+const DISEASE_COLORS={Healthy:'#39ff14',Diabetes:'#ff6d00',Anemia:'#ff2244',Thalassemia:'#b800ff','Heart Disease':'#ff004f',Thrombocytopenia:'#ffb700'};
+const DISEASE_INFO={
+  Healthy:{desc:'Biomarker panel shows values within normal reference ranges. No clinically significant abnormalities detected. Continue routine health monitoring.'},
+  Diabetes:{desc:'Elevated glucose and HbA1c indicate dysglycemia. Recommend oral glucose tolerance test, fasting insulin, and endocrinology consultation.'},
+  Anemia:{desc:'Low Hb, RBC and hematocrit suggest anemia. CBC with differential, serum iron, TIBC, ferritin, and B12 panel advised.'},
+  Thalassemia:{desc:'Microcytic hypochromic pattern (low MCV, MCH, MCHC) characteristic of thalassemia. Hemoglobin electrophoresis and genetic testing recommended.'},
+  'Heart Disease':{desc:'Elevated troponin, CRP and cardiac risk factors indicate acute coronary risk. Immediate cardiology referral, ECG, and echocardiography strongly advised.'},
+  Thrombocytopenia:{desc:'Critically low platelet count detected. Risk of hemorrhagic complications. Hematology consultation, bone marrow biopsy and peripheral smear recommended.'},
+};
+
+function buildSliders(){
+  const mount=document.getElementById('sliders-mount');
+  MARKERS.forEach(grp=>{
+    const block=document.createElement('div');
+    block.className='gblock';
+    block.innerHTML=`<div class="gblock-title">${grp.icon} ${grp.group}</div>`;
+    grp.items.forEach(item=>{
+      const row=document.createElement('div');
+      row.className='srow';
+      row.innerHTML=`<div class="srow-head"><span class="srow-name">${item.n}</span><span class="sval" id="v-${item.id}">${item.def.toFixed(2)}</span></div><input type="range" id="sl-${item.id}" min="0" max="1" step="0.01" value="${item.def}" oninput="onSlide('${item.id}',this.value,${item.wl},${item.wh})">`;
+      block.appendChild(row);
+    });
+    mount.appendChild(block);
+  });
+}
+
+function onSlide(id,val,wl,wh){
+  const v=parseFloat(val);
+  const el=document.getElementById(`v-${id}`);
+  el.textContent=v.toFixed(2);
+  el.className='sval';
+  if(v<wl*0.7||v>wh*1.2)el.classList.add('d');
+  else if(v<wl||v>wh)el.classList.add('w');
+  else el.classList.add('h');
+  const pct=v*100;
+  const sl=document.getElementById(`sl-${id}`);
+  sl.style.background=`linear-gradient(90deg,var(--cyan) 0%,var(--cyan) ${pct}%,rgba(0,255,234,0.08) ${pct}%)`;
+  drawRadar();
+}
+
+function getVal(id){return parseFloat(document.getElementById(`sl-${id}`).value);}
+
+function resetAll(){
+  MARKERS.forEach(g=>g.items.forEach(item=>{document.getElementById(`sl-${item.id}`).value=item.def;onSlide(item.id,item.def,item.wl,item.wh);}));
+  document.getElementById('result-card').classList.remove('flipped');
+  document.getElementById('prob-panel').style.display='none';
+}
+
+// RADAR
+const RADAR_KEYS=[{id:'hemoglobin',n:'Hb'},{id:'rbc',n:'RBC'},{id:'platelets',n:'PLT'},{id:'glucose',n:'GLU'},{id:'hba1c',n:'A1c'},{id:'mcv',n:'MCV'},{id:'troponin',n:'TRP'},{id:'crp',n:'CRP'}];
+function drawRadar(){
+  const canvas=document.getElementById('radar-canvas');
+  const ctx=canvas.getContext('2d');
+  const W=canvas.width,H=canvas.height;
+  ctx.clearRect(0,0,W,H);
+  const cx=W/2,cy=H/2,r=Math.min(W,H)*0.38,N=RADAR_KEYS.length;
+  for(let ring=1;ring<=4;ring++){
+    const rr=r*(ring/4);
+    ctx.beginPath();
+    for(let i=0;i<N;i++){const a=(2*Math.PI*i/N)-Math.PI/2;const x=cx+Math.cos(a)*rr,y=cy+Math.sin(a)*rr;i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);}
+    ctx.closePath();
+    ctx.strokeStyle=`rgba(0,255,234,${0.04+ring*0.03})`;ctx.lineWidth=0.8;ctx.stroke();
+    if(ring===4){ctx.fillStyle='rgba(0,255,234,0.02)';ctx.fill();}
+  }
+  RADAR_KEYS.forEach((k,i)=>{
+    const a=(2*Math.PI*i/N)-Math.PI/2;
+    ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+Math.cos(a)*r,cy+Math.sin(a)*r);
+    ctx.strokeStyle='rgba(0,255,234,0.12)';ctx.lineWidth=0.8;ctx.stroke();
+    ctx.fillStyle='rgba(0,255,234,0.6)';ctx.font='bold 9px "Share Tech Mono"';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(k.n,cx+Math.cos(a)*(r+22),cy+Math.sin(a)*(r+22));
+  });
+  ctx.beginPath();
+  RADAR_KEYS.forEach((k,i)=>{const v=getVal(k.id);const a=(2*Math.PI*i/N)-Math.PI/2;const x=cx+Math.cos(a)*r*v,y=cy+Math.sin(a)*r*v;i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});
+  ctx.closePath();
+  ctx.fillStyle='rgba(0,255,234,0.12)';ctx.fill();
+  ctx.strokeStyle='rgba(0,255,234,0.7)';ctx.lineWidth=1.5;ctx.shadowColor='#00ffea';ctx.shadowBlur=8;ctx.stroke();ctx.shadowBlur=0;
+  RADAR_KEYS.forEach((k,i)=>{
+    const v=getVal(k.id);const a=(2*Math.PI*i/N)-Math.PI/2;
+    ctx.beginPath();ctx.arc(cx+Math.cos(a)*r*v,cy+Math.sin(a)*r*v,3,0,Math.PI*2);
+    ctx.fillStyle='#00ffea';ctx.shadowColor='#00ffea';ctx.shadowBlur=10;ctx.fill();ctx.shadowBlur=0;
+  });
+}
+
+// CLASSIFIER
+function softmax(scores){
+  const vals=Object.values(scores),mx=Math.max(...vals);
+  const exps=vals.map(v=>Math.exp((v-mx)*5)),sum=exps.reduce((a,b)=>a+b,0);
+  const keys=Object.keys(scores),res={};
+  keys.forEach((k,i)=>res[k]=exps[i]/sum);
+  return res;
+}
+
+function classify(){
+  const f={};
+  MARKERS.forEach(g=>g.items.forEach(item=>{f[item.id]=getVal(item.id);}));
+  const raw={Healthy:1.0,Diabetes:0.0,Anemia:0.0,Thalassemia:0.0,'Heart Disease':0.0,Thrombocytopenia:0.0};
+  raw.Diabetes+=f.glucose>0.65?(f.glucose-0.65)*5:0;raw.Diabetes+=f.hba1c>0.65?(f.hba1c-0.65)*5:0;
+  raw.Diabetes+=f.ldl>0.62?(f.ldl-0.62)*2:0;raw.Diabetes+=f.cholesterol>0.68?(f.cholesterol-0.68)*1.5:0;
+  raw.Diabetes-=f.glucose<0.3?(0.3-f.glucose)*2:0;
+  raw.Anemia+=f.hemoglobin<0.38?(0.38-f.hemoglobin)*6:0;raw.Anemia+=f.rbc<0.38?(0.38-f.rbc)*4:0;
+  raw.Anemia+=f.hematocrit<0.38?(0.38-f.hematocrit)*4:0;raw.Anemia-=f.mcv<0.3?(0.3-f.mcv)*2:0;
+  raw.Thalassemia+=f.mcv<0.35?(0.35-f.mcv)*6:0;raw.Thalassemia+=f.mch<0.35?(0.35-f.mch)*6:0;
+  raw.Thalassemia+=f.mchc<0.33?(0.33-f.mchc)*4:0;raw.Thalassemia+=f.hemoglobin<0.45?(0.45-f.hemoglobin)*2:0;
+  raw['Heart Disease']+=f.troponin>0.62?(f.troponin-0.62)*7:0;raw['Heart Disease']+=f.crp>0.65?(f.crp-0.65)*4:0;
+  raw['Heart Disease']+=f.heartRate>0.72?(f.heartRate-0.72)*3:0;raw['Heart Disease']+=f.cholesterol>0.72?(f.cholesterol-0.72)*2.5:0;
+  raw['Heart Disease']+=f.ldl>0.68?(f.ldl-0.68)*2.5:0;
+  raw.Thrombocytopenia+=f.platelets<0.28?(0.28-f.platelets)*8:0;raw.Thrombocytopenia+=f.wbc<0.2?(0.2-f.wbc)*2:0;
+  const totalDisease=Object.values(raw).reduce((a,b)=>a+b,0)-raw.Healthy;
+  raw.Healthy=Math.max(0,2.2-totalDisease*0.65);
+  Object.keys(raw).forEach(k=>{if(raw[k]<0)raw[k]=0;});
+  const probs=softmax(raw);
+  const pred=Object.entries(probs).sort((a,b)=>b[1]-a[1])[0];
+  return{probs,name:pred[0],conf:pred[1]};
+}
+
+// DATA STREAM
+let streamInt=null;
+const streamLines=['LOADING BIOMARKER MATRIX...','NORMALIZING FEATURE VECTORS...','APPLYING PCA DECOMPOSITION...','EXTRACTING PRINCIPAL COMPONENTS...','FITTING LABEL ENCODER...','RUNNING SGD CLASSIFICATION...','COMPUTING SOFTMAX DISTRIBUTION...','CROSS-VALIDATING OUTPUTS...','APPLYING CONFIDENCE THRESHOLDS...','GENERATING DIAGNOSTIC REPORT...'];
+function startStream(){
+  const el=document.getElementById('data-stream');el.innerHTML='';let idx=0;
+  streamInt=setInterval(()=>{
+    if(idx<streamLines.length){const d=document.createElement('div');d.className='data-line';d.textContent='> '+streamLines[idx++];el.appendChild(d);el.scrollTop=el.scrollHeight;}
+  },280);
+}
+function stopStream(){clearInterval(streamInt);}
+
+// RUN SCAN
+let scanCount=0;
+const steps=[
+  {txt:'LOADING BIOMARKER MATRIX',sub:'Parsing 24 feature vectors...'},
+  {txt:'PCA DECOMPOSITION',sub:'Reducing to principal components...'},
+  {txt:'RUNNING SGD CLASSIFIER',sub:'Applying stochastic gradient descent...'},
+  {txt:'COMPUTING PROBABILITIES',sub:'Generating softmax distribution...'},
+  {txt:'FINALIZING DIAGNOSIS',sub:'Applying confidence thresholds...'},
+];
+function runScan(){
+  const modal=document.getElementById('scan-modal');
+  const prog=document.getElementById('scan-prog');
+  const stepTxt=document.getElementById('scan-step');
+  const subTxt=document.getElementById('scan-sub');
+  document.getElementById('scan-btn').classList.add('scanning');
+  modal.classList.add('on');startStream();
+  let s=0;
+  const iv=setInterval(()=>{
+    if(s<steps.length){stepTxt.textContent=steps[s].txt;subTxt.textContent=steps[s].sub;prog.style.width=((s+1)/steps.length*100)+'%';s++;}
+    else{clearInterval(iv);stopStream();setTimeout(()=>{modal.classList.remove('on');document.getElementById('scan-btn').classList.remove('scanning');showResult();},400);}
+  },420);
+}
+
+function showResult(){
+  const{probs,name,conf}=classify();
+  const info=DISEASE_INFO[name],col=DISEASE_COLORS[name],pct=Math.round(conf*100);
+  const ts=new Date().toLocaleString('en-GB');
+  const patient=document.getElementById('pname').value||'Unknown';
+  const pid=document.getElementById('pid').value||'BSH-????';
+  scanCount++;
+  document.getElementById('stat-scans').textContent=scanCount;
+  document.getElementById('stat-last').textContent=name.split(' ')[0];
+  const allItems=MARKERS.flatMap(g=>g.items);
+  const flags=allItems.filter(i=>{const v=getVal(i.id);return v<i.wl*0.82||v>i.wh*1.12;}).slice(0,5)
+    .map(i=>{const v=getVal(i.id);const lvl=(v<i.wl*0.7||v>i.wh*1.2)?'danger':'warn';const flagCol=lvl==='danger'?'#ff2244':'#ffb700';return `<span class="r-flag" style="color:${flagCol};border-color:${flagCol}33;">${i.n.split(' ').slice(-1)[0]}: ${v.toFixed(2)}</span>`;}).join('');
+  document.getElementById('result-back').innerHTML=`
+    <div class="corner tl"></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div>
+    <div class="r-back-inner">
+      <div class="r-ts">⚕ DIAGNOSTIC REPORT · ${ts}</div>
+      <div class="r-patient">PATIENT: ${patient} · ID: ${pid}</div>
+      <div class="disease-name" style="color:${col};text-shadow:0 0 30px ${col}60;">${name}</div>
+      <div class="conf-num" style="color:${col};">${pct}<span class="conf-unit">%</span></div>
+      ${flags?`<div class="r-flags">${flags}</div>`:''}
+      <div class="r-desc">${info.desc}</div>
+    </div>`;
+  setTimeout(()=>{
+    document.getElementById('result-card').classList.add('flipped');
+    buildProbBars(probs);
+    const pp=document.getElementById('prob-panel');pp.style.display='block';pp.style.animation='panelIn 0.5s cubic-bezier(0.16,1,0.3,1) both';
+  },150);
+}
+
+function buildProbBars(probs){
+  const c=document.getElementById('prob-bars');c.innerHTML='';
+  Object.entries(probs).sort((a,b)=>b[1]-a[1]).forEach(([name,p])=>{
+    const pct=(p*100).toFixed(1),col=DISEASE_COLORS[name]||'#00ffea';
+    const row=document.createElement('div');row.className='prob-row';
+    row.innerHTML=`<div class="prob-head"><span class="prob-name">${name}</span><span class="prob-pct">${pct}%</span></div><div class="prob-track"><div class="prob-fill" id="pb-${name.replace(/\s/g,'')}" style="background:${col};box-shadow:0 0 8px ${col}55;"></div></div>`;
+    c.appendChild(row);
+    setTimeout(()=>{document.getElementById(`pb-${name.replace(/\s/g,'')}`).style.width=`${pct}%`;},80);
+  });
+}
+
+// 3D TILT
+document.querySelectorAll('.gpanel.tiltable').forEach(el=>{
+  el.addEventListener('mousemove',e=>{const r=el.getBoundingClientRect();const x=(e.clientX-r.left)/r.width-0.5,y=(e.clientY-r.top)/r.height-0.5;el.style.transform=`perspective(900px) rotateX(${-y*4}deg) rotateY(${x*4}deg)`;});
+  el.addEventListener('mouseleave',()=>{el.style.transform='perspective(900px) rotateX(0) rotateY(0)';});
+});
+
+// INIT
+buildSliders();
+MARKERS.forEach(g=>g.items.forEach(item=>{onSlide(item.id,item.def,item.wl,item.wh);}));
+document.getElementById('pid').value='BSH-'+Math.floor(Math.random()*9000+1000);
+</script>
+</body>
+</html>
